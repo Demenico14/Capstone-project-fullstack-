@@ -1,0 +1,6 @@
+sensor_id,harvest_date,yield_value,crop_type,unit
+SENSOR_001,2024-06-15,2800,tobacco,kg/hectare
+SENSOR_002,2024-07-20,3200,tobacco,kg/hectare
+SENSOR_003,2024-08-10,2650,tobacco,kg/hectare
+SENSOR_001,2024-09-05,2950,tobacco,kg/hectare
+SENSOR_002,2024-09-25,3100,tobacco,kg/hectare

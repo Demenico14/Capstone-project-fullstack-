@@ -1,0 +1,77 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# --------------------
+# Python backend
+# --------------------
+
+# Virtual environments
+/backend/venv/
+backend/.venv/
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python packaging
+*.egg-info/
+.eggs/
+
+# Python env files
+backend/.env
+backend/.env.*
+
+# Python logs
+*.log
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --------------------
+# Backend generated / temp
+# --------------------
+
+# Ignore backend v0 folder
+/backend/v0/
+
+# If backend has its own node deps (just in case)
+/backend/node_modules/
+
+
+# backend secrets + junk
+backend/.env
+backend/.env.*
+backend/__pycache__/
+backend/v0/
+backend/*.log
+.DS_Store

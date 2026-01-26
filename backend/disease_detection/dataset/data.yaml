@@ -1,0 +1,13 @@
+names:
+  0: healthy
+  1: brown_spot
+  2: frog_eye_leaf_spot
+  3: mosaic_virus
+  4: bacterial_wilt
+  5: black_shank
+  6: blue_mold
+  7: target_spot
+path: /Users/dominicmushayi/Documents/Capstone /Project/backend/disease_detection/dataset
+test: test/images
+train: /Users/dominicmushayi/Documents/Capstone /Project/backend/disease_detection/dataset/train/images
+val: /Users/dominicmushayi/Documents/Capstone /Project/backend/disease_detection/dataset/valid/images

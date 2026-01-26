@@ -1,0 +1,10 @@
+{
+  "model_type": "Random Forest",
+  "training_date": "2026-01-12T11:09:35.160686",
+  "test_r2_score": 0.27492310330967684,
+  "test_rmse": 256.7556044874716,
+  "test_mae": 214.90854092058566,
+  "n_features": 13,
+  "training_samples": 389,
+  "test_samples": 98
+}
