@@ -1,0 +1,20 @@
+{
+  "model_type": "ST-GNN",
+  "training_date": "2026-02-13T07:34:42.520400",
+  "test_r2_score": 0.7435284852981567,
+  "test_rmse": 234.48570718702663,
+  "test_mae": 184.0904998779297,
+  "num_features": 5,
+  "features": [
+    "temperature",
+    "humidity",
+    "soil_moisture",
+    "ph",
+    "vpd"
+  ],
+  "num_nodes": 2,
+  "seq_len": 168,
+  "training_samples": 33019,
+  "test_samples": 8255,
+  "model_params": 8449
+}
