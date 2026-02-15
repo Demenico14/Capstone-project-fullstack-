@@ -1,4 +1,4 @@
-const PRIMARY_IP = "192.168.4.3"
+const PRIMARY_IP = "10.90.229.120"
 const FALLBACK_IP = "192.168.1.230"
 
 const SENSOR_API_URL = process.env.NEXT_PUBLIC_API_URL || `http://${PRIMARY_IP}:5000`
@@ -147,6 +147,93 @@ export interface YieldModelInfo {
     mae: number | null
     rmse: number | null
     r2: number | null
+  }
+}
+
+// ============================================================================
+// PHYSICS / WATER BALANCE TYPES
+// ============================================================================
+
+export interface WaterBalanceEntry {
+  date: string
+  value: number
+  et0: number
+  etc: number
+  precipitation: number
+  runoff: number
+  deltaS: number
+  vpd: number
+  vpdStress: number
+  kc: number
+  components: { p: number; i: number; et: number; r: number; ds: number }
+}
+
+export interface CropGrowthEntry {
+  date: string
+  gdd: number
+  accumulatedGdd: number
+  lai: number
+  kc: number
+  growthStage: string
+}
+
+export interface VPDAnalysisEntry {
+  date: string
+  vpd: number
+  stressFactor: number
+  category: string
+  temperature: number
+  humidity: number
+}
+
+export interface YieldStressEntry {
+  date: string
+  vpdStress: number
+  waterStress: number
+  combinedStress: number
+  yieldImpact: number
+}
+
+export interface WaterBalanceResponse {
+  success: boolean
+  data: {
+    waterBalance: WaterBalanceEntry[]
+    cropGrowth: CropGrowthEntry[]
+    vpdAnalysis: VPDAnalysisEntry[]
+    yieldStress: YieldStressEntry[]
+    ndvi: Array<{ date: string; value: number }>
+    rainfall: Array<{ date: string; value: number }>
+    et: Array<{ date: string; value: number }>
+    kc: Array<{ date: string; value: number }>
+    deltaS: Array<{ date: string; value: number }>
+  }
+  summary: {
+    totalWaterBalance: number
+    averageWaterBalance: number
+    totalPrecipitation: number
+    totalET: number
+    averageVPD: number
+    maxVPD: number
+    waterDeficitDays: number
+    waterExcessDays: number
+    currentGrowthStage: string
+    accumulatedGDD: number
+    currentLAI: number
+  }
+  recommendations: string[]
+}
+
+export interface PhysicsSTGNNPrediction {
+  sensor_id: string
+  predicted_yield: number
+  uncertainty: number
+  confidence_interval: [number, number]
+  physics_features: {
+    avg_vpd_stress: number
+    avg_water_stress: number
+    accumulated_gdd: number
+    current_lai: number
+    growth_stage: string
   }
 }
 
@@ -458,6 +545,92 @@ class ApiClient {
 
   async yieldHealthCheck(): Promise<{ status: string; model_loaded: boolean }> {
     return this.fetch<{ status: string; model_loaded: boolean }>("/health", "yield")
+  }
+
+  // =========================================================================
+  // PHYSICS / WATER BALANCE METHODS (calls Python backend on sensor port)
+  // =========================================================================
+
+  async getWaterBalance(params: {
+    lat: number
+    lng: number
+    startDate?: string
+    endDate?: string
+    sensorId?: string
+  }): Promise<WaterBalanceResponse> {
+    const qs = new URLSearchParams({
+      lat: String(params.lat),
+      lng: String(params.lng),
+      ...(params.startDate && { startDate: params.startDate }),
+      ...(params.endDate && { endDate: params.endDate }),
+      ...(params.sensorId && { sensorId: params.sensorId }),
+    })
+    return this.fetch<WaterBalanceResponse>(`/api/water-balance?${qs}`, "sensor")
+  }
+
+  async getVPDAnalysis(params: {
+    startDate?: string
+    endDate?: string
+    sensorId?: string
+  }): Promise<{ success: boolean; data: VPDAnalysisEntry[] }> {
+    const qs = new URLSearchParams({
+      ...(params.startDate && { startDate: params.startDate }),
+      ...(params.endDate && { endDate: params.endDate }),
+      ...(params.sensorId && { sensorId: params.sensorId }),
+    })
+    return this.fetch(`/api/physics/vpd?${qs}`, "sensor")
+  }
+
+  async getCropGrowth(params: {
+    lat?: number
+    lng?: number
+    startDate?: string
+    endDate?: string
+  }): Promise<{ success: boolean; data: CropGrowthEntry[] }> {
+    const qs = new URLSearchParams({
+      ...(params.lat && { lat: String(params.lat) }),
+      ...(params.lng && { lng: String(params.lng) }),
+      ...(params.startDate && { startDate: params.startDate }),
+      ...(params.endDate && { endDate: params.endDate }),
+    })
+    return this.fetch(`/api/physics/crop-growth?${qs}`, "sensor")
+  }
+
+  async getYieldStress(params: {
+    lat: number
+    lng: number
+    startDate?: string
+    endDate?: string
+  }): Promise<{
+    success: boolean
+    yieldStress: YieldStressEntry[]
+    summary: Record<string, number | string>
+    recommendations: string[]
+  }> {
+    const qs = new URLSearchParams({
+      lat: String(params.lat),
+      lng: String(params.lng),
+      ...(params.startDate && { startDate: params.startDate }),
+      ...(params.endDate && { endDate: params.endDate }),
+    })
+    return this.fetch(`/api/physics/yield-stress?${qs}`, "sensor")
+  }
+
+  async getGEEData(params: {
+    lat: number
+    lng: number
+    startDate?: string
+    endDate?: string
+    dataType?: "ndvi" | "rainfall" | "et" | "lst" | "all"
+  }): Promise<{ success: boolean; data: Record<string, unknown> }> {
+    const qs = new URLSearchParams({
+      lat: String(params.lat),
+      lng: String(params.lng),
+      ...(params.startDate && { startDate: params.startDate }),
+      ...(params.endDate && { endDate: params.endDate }),
+      ...(params.dataType && { dataType: params.dataType }),
+    })
+    return this.fetch(`/api/gee/data?${qs}`, "sensor")
   }
 }
 

@@ -8,7 +8,7 @@ The error you're experiencing is due to PyTorch not having stable support for Py
 
 ### Step 1: Create a new virtual environment with Python 3.11 or 3.12
 
-```bash
+\`\`\`bash
 # First, deactivate your current environment
 deactivate
 
@@ -24,71 +24,71 @@ python3.12 -m venv tobacco
 
 # Activate the new environment
 source tobacco/bin/activate
-```
+\`\`\`
 
 ### Step 2: Install PyTorch for macOS
 
 For Apple Silicon Macs (M1/M2/M3), install PyTorch with MPS (Metal Performance Shaders) support:
 
-```bash
+\`\`\`bash
 pip install --upgrade pip
 pip install torch torchvision torchaudio
-```
+\`\`\`
 
 ### Step 3: Install other requirements
 
-```bash
+\`\`\`bash
 pip install -r requirements.txt
-```
+\`\`\`
 
 ### Step 4: Verify installation
 
-```bash
+\`\`\`bash
 python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'MPS available: {torch.backends.mps.is_available()}')"
-```
+\`\`\`
 
 ### Step 5: Run the backend
 
-```bash
+\`\`\`bash
 # For the main API server
 python api_server.py
 
 # Or for the ML app
 python app.py
-```
+\`\`\`
 
 ## Alternative: Install Python 3.11 if you don't have it
 
 If you don't have Python 3.11 installed:
 
-```bash
+\`\`\`bash
 # Using Homebrew
 brew install python@3.11
 
 # Then create the virtual environment
 /opt/homebrew/bin/python3.11 -m venv tobacco
 source tobacco/bin/activate
-```
+\`\`\`
 
 ## Troubleshooting
 
 If you still encounter issues:
 
 1. **Clear pip cache:**
-   ```bash
+   \`\`\`bash
    pip cache purge
-   ```
+   \`\`\`
 
 2. **Reinstall torch completely:**
-   ```bash
+   \`\`\`bash
    pip uninstall torch torchvision torchaudio
    pip install torch torchvision torchaudio
-   ```
+   \`\`\`
 
 3. **Check your Python version:**
-   ```bash
+   \`\`\`bash
    python --version  # Should show 3.11.x or 3.12.x
-   ```
+   \`\`\`
 
 ## MongoDB Connection
 

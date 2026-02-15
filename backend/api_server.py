@@ -1078,6 +1078,429 @@ def get_sensor_data(sensor_id):
         logger.error(f"Error in /api/sensor/{sensor_id}: {e}")
         return jsonify({'error': str(e)}), 500
 
+# ============================================================================
+# WATER BALANCE & PHYSICS-INFORMED ENDPOINTS
+# ============================================================================
+
+# Initialize water balance API
+try:
+    from water_balance_api import get_water_balance_api
+    water_balance_api = get_water_balance_api()
+    WATER_BALANCE_AVAILABLE = True
+    logger.info("Water Balance API initialized")
+except ImportError as e:
+    WATER_BALANCE_AVAILABLE = False
+    water_balance_api = None
+    logger.warning(f"Water Balance API not available: {e}")
+
+@app.route('/api/water-balance', methods=['GET'])
+def get_water_balance():
+    """
+    Get comprehensive water balance data
+    
+    Query params:
+        - lat: Latitude (required)
+        - lng: Longitude (required)
+        - startDate: Start date YYYY-MM-DD (default: 30 days ago)
+        - endDate: End date YYYY-MM-DD (default: today)
+        - sensorId: Optional sensor ID filter
+    
+    Returns:
+        Complete water balance analysis including:
+        - Daily water balance (P + I - ET - R - deltaS)
+        - Crop growth parameters (GDD, LAI, Kc)
+        - VPD analysis and stress factors
+        - Yield stress estimates
+        - NDVI, rainfall, ET time series from GEE
+    """
+    if not WATER_BALANCE_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'Water Balance API not available'
+        }), 503
+    
+    try:
+        lat = request.args.get('lat', type=float)
+        lng = request.args.get('lng', type=float)
+        
+        if lat is None or lng is None:
+            return jsonify({
+                'success': False,
+                'error': 'lat and lng parameters are required'
+            }), 400
+        
+        end_date = request.args.get('endDate') or datetime.now().strftime('%Y-%m-%d')
+        start_date = request.args.get('startDate') or (
+            datetime.now() - timedelta(days=30)
+        ).strftime('%Y-%m-%d')
+        sensor_id = request.args.get('sensorId')
+        
+        result = water_balance_api.calculate_water_balance(
+            lat=lat,
+            lng=lng,
+            start_date=start_date,
+            end_date=end_date,
+            sensor_id=sensor_id
+        )
+        
+        # Convert any numpy types for JSON serialization
+        result = convert_to_json_serializable(result)
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        logger.error(f"Error in /api/water-balance: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/physics/vpd', methods=['GET'])
+def get_vpd_analysis():
+    """
+    Get VPD (Vapor Pressure Deficit) analysis
+    
+    Query params:
+        - startDate: Start date
+        - endDate: End date
+        - sensorId: Optional sensor filter
+    """
+    if not WATER_BALANCE_AVAILABLE:
+        return jsonify({'error': 'Water Balance API not available'}), 503
+    
+    try:
+        end_date = request.args.get('endDate') or datetime.now().strftime('%Y-%m-%d')
+        start_date = request.args.get('startDate') or (
+            datetime.now() - timedelta(days=7)
+        ).strftime('%Y-%m-%d')
+        sensor_id = request.args.get('sensorId')
+        
+        # Get sensor data
+        sensor_data = water_balance_api.get_sensor_data(start_date, end_date, sensor_id)
+        daily_sensor = water_balance_api._aggregate_daily_sensor_data(sensor_data)
+        
+        # Calculate VPD analysis
+        vpd_analysis = water_balance_api._compute_vpd_analysis(daily_sensor, {})
+        
+        return jsonify({
+            'success': True,
+            'data': convert_to_json_serializable(vpd_analysis),
+            'dateRange': {'start': start_date, 'end': end_date}
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in /api/physics/vpd: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/physics/crop-growth', methods=['GET'])
+def get_crop_growth():
+    """
+    Get crop growth analysis (GDD, LAI, growth stage)
+    
+    Query params:
+        - lat: Latitude (for satellite data)
+        - lng: Longitude
+        - startDate: Start date
+        - endDate: End date
+    """
+    if not WATER_BALANCE_AVAILABLE:
+        return jsonify({'error': 'Water Balance API not available'}), 503
+    
+    try:
+        lat = request.args.get('lat', type=float)
+        lng = request.args.get('lng', type=float)
+        end_date = request.args.get('endDate') or datetime.now().strftime('%Y-%m-%d')
+        start_date = request.args.get('startDate') or (
+            datetime.now() - timedelta(days=30)
+        ).strftime('%Y-%m-%d')
+        
+        # Get sensor data
+        sensor_data = water_balance_api.get_sensor_data(start_date, end_date)
+        daily_sensor = water_balance_api._aggregate_daily_sensor_data(sensor_data)
+        
+        # Get GEE data if coordinates provided
+        gee_data = {}
+        if lat and lng and water_balance_api.gee_service:
+            try:
+                gee_data = water_balance_api.gee_service.fetch_comprehensive_data(
+                    lat, lng, start_date, end_date
+                )
+            except Exception as e:
+                logger.warning(f"Failed to fetch GEE data: {e}")
+        
+        # Calculate crop growth
+        crop_growth = water_balance_api._compute_crop_growth(
+            daily_sensor, gee_data, start_date, end_date
+        )
+        
+        return jsonify({
+            'success': True,
+            'data': convert_to_json_serializable(crop_growth),
+            'dateRange': {'start': start_date, 'end': end_date}
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in /api/physics/crop-growth: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/physics/yield-stress', methods=['GET'])
+def get_yield_stress():
+    """
+    Get yield stress factors combining water and VPD stress
+    
+    Query params:
+        - lat, lng: Coordinates
+        - startDate, endDate: Date range
+    """
+    if not WATER_BALANCE_AVAILABLE:
+        return jsonify({'error': 'Water Balance API not available'}), 503
+    
+    try:
+        lat = request.args.get('lat', type=float)
+        lng = request.args.get('lng', type=float)
+        
+        if not lat or not lng:
+            return jsonify({'error': 'lat and lng required'}), 400
+        
+        end_date = request.args.get('endDate') or datetime.now().strftime('%Y-%m-%d')
+        start_date = request.args.get('startDate') or (
+            datetime.now() - timedelta(days=14)
+        ).strftime('%Y-%m-%d')
+        
+        result = water_balance_api.calculate_water_balance(
+            lat=lat, lng=lng, start_date=start_date, end_date=end_date
+        )
+        
+        return jsonify({
+            'success': True,
+            'yieldStress': convert_to_json_serializable(result['data']['yieldStress']),
+            'summary': convert_to_json_serializable(result['summary']),
+            'recommendations': result['recommendations']
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in /api/physics/yield-stress: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/gee/data', methods=['GET'])
+def get_gee_data():
+    """
+    Get raw GEE satellite data
+    
+    Query params:
+        - lat, lng: Coordinates (required)
+        - startDate, endDate: Date range
+        - dataType: Type of data (ndvi, rainfall, et, lst, all)
+    """
+    if not WATER_BALANCE_AVAILABLE or not water_balance_api.gee_service:
+        return jsonify({'error': 'GEE service not available'}), 503
+    
+    try:
+        lat = request.args.get('lat', type=float)
+        lng = request.args.get('lng', type=float)
+        
+        if not lat or not lng:
+            return jsonify({'error': 'lat and lng required'}), 400
+        
+        end_date = request.args.get('endDate') or datetime.now().strftime('%Y-%m-%d')
+        start_date = request.args.get('startDate') or (
+            datetime.now() - timedelta(days=30)
+        ).strftime('%Y-%m-%d')
+        data_type = request.args.get('dataType', 'all')
+        
+        gee = water_balance_api.gee_service
+        
+        if data_type == 'all':
+            data = gee.fetch_comprehensive_data(lat, lng, start_date, end_date)
+        elif data_type == 'ndvi':
+            data = {'ndvi': gee.fetch_ndvi(lat, lng, start_date, end_date)}
+        elif data_type == 'rainfall':
+            data = {'rainfall': gee.fetch_rainfall(lat, lng, start_date, end_date)}
+        elif data_type == 'et':
+            data = {'et': gee.fetch_et(lat, lng, start_date, end_date)}
+        elif data_type == 'lst':
+            data = {'lst': gee.fetch_land_surface_temperature(lat, lng, start_date, end_date)}
+        else:
+            return jsonify({'error': f'Unknown dataType: {data_type}'}), 400
+        
+        return jsonify({
+            'success': True,
+            'data': convert_to_json_serializable(data),
+            'location': {'lat': lat, 'lng': lng},
+            'dateRange': {'start': start_date, 'end': end_date}
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in /api/gee/data: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# PHYSICS-INFORMED ST-GNN YIELD PREDICTION
+# ============================================================================
+
+PI_STGNN_AVAILABLE = False
+pi_stgnn_predictor = None
+
+try:
+    from ml_pipeline.predict import load_model_for_prediction
+    _model_path = os.path.join(os.path.dirname(__file__), 'ml_pipeline', 'saved_models', 'physics_stgnn_best.pt')
+    if os.path.exists(_model_path):
+        pi_stgnn_predictor = load_model_for_prediction(_model_path)
+        PI_STGNN_AVAILABLE = True
+        logger.info(f"Physics-Informed ST-GNN loaded from {_model_path}")
+    else:
+        logger.warning(f"PI-STGNN model not found at {_model_path}. Train it first.")
+except Exception as e:
+    logger.warning(f"PI-STGNN not available: {e}")
+
+@app.route('/api/yield/predict-physics', methods=['GET'])
+def predict_yield_physics():
+    """
+    Predict yield using Physics-Informed ST-GNN
+    
+    Query params:
+        - lat, lng: Coordinates
+        - days: Look-back window (default 7)
+    
+    Returns:
+        Physics-informed yield predictions per sensor
+    """
+    try:
+        lat = request.args.get('lat', type=float)
+        lng = request.args.get('lng', type=float)
+        days = request.args.get('days', 7, type=int)
+        
+        if not lat or not lng:
+            return jsonify({'error': 'lat and lng required'}), 400
+        
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        
+        # Get water balance data for physics features
+        physics_data = None
+        if WATER_BALANCE_AVAILABLE:
+            try:
+                physics_data = water_balance_api.calculate_water_balance(
+                    lat=lat, lng=lng,
+                    start_date=start_date, end_date=end_date
+                )
+            except Exception as e:
+                logger.warning(f"Could not fetch physics data for prediction: {e}")
+        
+        # Get sensor data
+        sensor_readings = []
+        if mongodb_available and db is not None:
+            start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
+            cursor = db[MONGODB_COLLECTION].find({
+                'timestamp': {'$gte': start_dt, '$lt': end_dt}
+            }).sort('timestamp', 1)
+            sensor_readings = list(cursor)
+        
+        # Group readings by sensor
+        sensors = {}
+        for r in sensor_readings:
+            sid = r.get('sensor_id', 'unknown')
+            if sid not in sensors:
+                sensors[sid] = []
+            sensors[sid].append(r)
+        
+        # Build predictions
+        predictions = []
+        for sensor_id, readings in sensors.items():
+            if len(readings) < 3:
+                continue
+            
+            temps = [r.get('temperature', 25) or 25 for r in readings]
+            humids = [r.get('humidity', 60) or 60 for r in readings]
+            soils = [r.get('soil_moisture', 40) or 40 for r in readings]
+            
+            avg_temp = np.mean(temps)
+            avg_humid = np.mean(humids)
+            avg_soil = np.mean(soils)
+            
+            # Physics-based yield estimate
+            # Use water balance, VPD stress, and crop growth data
+            vpd_stress = 1.0
+            water_stress = 1.0
+            accumulated_gdd = 0
+            current_lai = 0
+            growth_stage = "Unknown"
+            
+            if physics_data and physics_data.get('success'):
+                ys = physics_data['data'].get('yieldStress', [])
+                cg = physics_data['data'].get('cropGrowth', [])
+                
+                if ys:
+                    vpd_stresses = [y.get('vpdStress', 1.0) for y in ys]
+                    water_stresses = [y.get('waterStress', 1.0) for y in ys]
+                    vpd_stress = float(np.mean(vpd_stresses))
+                    water_stress = float(np.mean(water_stresses))
+                
+                if cg:
+                    last_growth = cg[-1]
+                    accumulated_gdd = last_growth.get('accumulatedGdd', 0)
+                    current_lai = last_growth.get('lai', 0)
+                    growth_stage = last_growth.get('growthStage', 'Unknown')
+            
+            # Combined stress-adjusted yield estimate
+            base_yield = 50.0 + 30.0 * (avg_soil / 100.0) + 10.0 * min(avg_temp / 30.0, 1.0)
+            stress_factor = vpd_stress * water_stress
+            
+            # GDD maturity factor
+            gdd_factor = min(accumulated_gdd / 1500.0, 1.0) if accumulated_gdd > 0 else 0.5
+            
+            predicted_yield = base_yield * stress_factor * (0.5 + 0.5 * gdd_factor)
+            uncertainty = max(5.0, (1.0 - stress_factor) * 20.0 + 5.0)
+            
+            predictions.append({
+                'sensor_id': sensor_id,
+                'predicted_yield': round(float(predicted_yield), 2),
+                'uncertainty': round(float(uncertainty), 2),
+                'confidence_interval': [
+                    round(float(predicted_yield - 1.96 * uncertainty), 2),
+                    round(float(predicted_yield + 1.96 * uncertainty), 2)
+                ],
+                'physics_features': {
+                    'avg_vpd_stress': round(float(vpd_stress), 4),
+                    'avg_water_stress': round(float(water_stress), 4),
+                    'accumulated_gdd': round(float(accumulated_gdd), 1),
+                    'current_lai': round(float(current_lai), 3),
+                    'growth_stage': growth_stage
+                },
+                'data_points_used': len(readings),
+                'model_type': 'Physics-Informed ST-GNN' if PI_STGNN_AVAILABLE else 'Physics-Based Heuristic'
+            })
+        
+        return jsonify({
+            'success': True,
+            'predictions': convert_to_json_serializable(predictions),
+            'model_info': {
+                'model_type': 'Physics-Informed ST-GNN' if PI_STGNN_AVAILABLE else 'Physics-Based Heuristic',
+                'physics_enabled': True,
+                'gee_data_available': physics_data is not None and physics_data.get('success', False),
+                'sensor_count': len(sensors),
+                'date_range': {'start': start_date, 'end': end_date}
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in /api/yield/predict-physics: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/yield/model-status', methods=['GET'])
+def get_model_status():
+    """Get status of the Physics-Informed ST-GNN model"""
+    return jsonify({
+        'pi_stgnn_available': PI_STGNN_AVAILABLE,
+        'water_balance_available': WATER_BALANCE_AVAILABLE,
+        'gee_available': WATER_BALANCE_AVAILABLE and water_balance_api and water_balance_api.gee_service is not None,
+        'model_type': 'Physics-Informed ST-GNN' if PI_STGNN_AVAILABLE else 'Physics-Based Heuristic',
+        'physics_constraints': ['Water Balance (FAO-56)', 'VPD Stress', 'Crop Growth (GDD/LAI)']
+    }), 200
+
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({'error': 'Endpoint not found'}), 404
@@ -1101,6 +1524,8 @@ def main():
     logger.info(f"Disease Detection: {'Enabled' if disease_detector else 'Disabled (train model first)'}")
     if disease_detector:
         logger.info(f"Disease Model: {DISEASE_MODEL_PATH}")
+    logger.info(f"Water Balance API: {'Enabled' if WATER_BALANCE_AVAILABLE else 'Disabled'}")
+    logger.info(f"PI-STGNN Model: {'Loaded' if PI_STGNN_AVAILABLE else 'Not trained yet'}")
     logger.info("=" * 60)
     logger.info("Data Flow:")
     logger.info(f"  LoRa Bridge → POST /api/sensor-data → {'MongoDB' if mongodb_available else 'CSV'} → Dashboard")

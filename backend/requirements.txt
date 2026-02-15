@@ -1,3 +1,4 @@
+# Core ML
 ultralytics
 opencv-python
 numpy
@@ -8,6 +9,16 @@ torchvision
 requests
 albumentations
 roboflow
+
+# PyTorch Geometric (ST-GNN)
+torch-geometric
+torch-scatter
+torch-sparse
+
+# Google Earth Engine
+earthengine-api
+
+# Web / API
 flask
 flask-cors
 pandas
